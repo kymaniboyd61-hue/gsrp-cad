@@ -15,8 +15,8 @@ Computer aided dispatch for the Georgia State Roleplay ER:LC server. One free Cl
 
 ## What is not built yet
 
-- Real voice audio on the radio. The radio is text, with speech to text and read-aloud.
-- AI dispatch. The dispatcher is scripted because an AI model needs a paid key.
+- Real voice audio on the CAD radio. The radio is text, with speech to text and read-aloud.
+- AI on the CAD radio. That dispatcher is scripted. The AI dispatcher lives in Discord voice instead (see below).
 - Live data from the ER:LC server (players, vehicles, in-game commands).
 - Live map and bodycam.
 
@@ -50,6 +50,10 @@ Members then press "Log in with Discord", enter their badge and PIN once to link
 
 Radio traffic, 911 calls and panic alerts are then posted in that channel. This is one-way: the CAD posts to Discord. It does not listen to Discord voice.
 
+## AI dispatch in a Discord voice channel
+
+The `voice-bot` folder holds a separate bot that joins a voice channel, wakes on "dispatch", answers out loud with a free AI model, and updates the CAD. It runs on your own PC during sessions. Setup steps are in `voice-bot/README.md`. It has not been run against Discord yet.
+
 ## Install as an app
 
 - iPhone: open the link in Safari, tap Share, then Add to Home Screen.
@@ -64,5 +68,6 @@ Cloudflare's free plan allows 100,000 server requests a day. Each button press i
 
 - `src/worker.js`: the Worker and the `Cad` Durable Object (all server logic).
 - `public/`: the app (`index.html`, `app.js`, `styles.css`), manifest, service worker and icons.
-- `npm test` runs the server smoke test; `node test/client.mjs` drives the app's screens against it. Neither needs Cloudflare.
+- `npm test` runs the server smoke test, the app screen test and the bot helper test. None of them need Cloudflare or Discord.
+- `voice-bot/`: the Discord voice dispatcher. Cloudflare ignores this folder.
 - Department names, ranks and radio channels are listed at the top of both `src/worker.js` and `public/app.js`. Keep the two in step.

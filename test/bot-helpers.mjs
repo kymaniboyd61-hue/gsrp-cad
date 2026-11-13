@@ -1,0 +1,12 @@
+import assert from "node:assert/strict";
+import { downsample48to16, wavFromPcm, parseWake, cleanReply } from "../voice-bot/lib.js";
+const pcm = Buffer.alloc(48000 * 2); for (let i = 0; i < 48000; i++) pcm.writeInt16LE(i % 2 ? 300 : 900, i * 2);
+const small = downsample48to16(pcm); assert.equal(small.length, 16000 * 2);
+const wav = wavFromPcm(small, 16000); assert.equal(wav.toString("ascii", 0, 4), "RIFF"); assert.equal(wav.readUInt32LE(24), 16000); assert.equal(wav.length, 44 + small.length);
+assert.deepEqual(parseWake("Dispatch, show me 10-8.", "dispatch"), { called: true, rest: "show me 10-8." });
+assert.deepEqual(parseWake("2E-102 to dispatch run plate ABC123", "dispatch"), { called: true, rest: "2E-102 to run plate ABC123" });
+assert.equal(parseWake("Dispatched.", "dispatch").called, true); assert.equal(parseWake("Dispatch", "dispatch").rest, "");
+assert.equal(parseWake("anyone want pizza", "dispatch").called, false);
+assert.equal(parseWake("control, radio check", "control").called, true);
+assert.equal(cleanReply("**2E-102**, copy.\n\n- showing you `10-8`"), "2E-102, copy. - showing you 10-8");
+console.log("bot helper test passed");

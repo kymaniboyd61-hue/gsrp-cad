@@ -292,7 +292,7 @@ function viewAdmin(){
   if (S.adminTab === 'ai'){
     return '<div class="page">' + head + '<section class="panel"><h2>Dispatch</h2><div class="muted">Turn the automatic dispatcher on or off in each place. The two switches are independent.</div>' +
       sw('ai-radio', V.cfg.aiRadio, 'CAD radio', 'Answers units on the CAD radio for every department: status changes, plates and names, traffic stops, getting and clearing calls.') +
-      sw('ai-discord', V.cfg.aiDiscord, 'Discord', V.cfg.webhookSet ? 'Posts radio traffic, 911 calls and panic alerts into your Discord channel.' : 'Add a Discord webhook link on the Discord tab first. Until then this switch does nothing.') +
+      sw('ai-discord', V.cfg.aiDiscord, 'Discord', 'Turns on the voice dispatch bot in your Discord voice channel (when it is running) and, if a webhook is saved, posts radio traffic, 911 calls and panic alerts into your Discord text channel.') +
       '<div class="note">This build uses a scripted dispatcher, which is free. It understands radio phrases such as 10-8, 10-97, 10-23, "run plate ABC123", "traffic stop", "any calls" and "clear".</div></section></div>';
   }
   if (S.adminTab === 'discord'){
@@ -305,7 +305,11 @@ function viewAdmin(){
       '<div class="form">' + DKEYS.map(function(k){ return field('d-role-' + k, esc(DEPTS[k].name) + ' role ID', 'type="text" inputmode="numeric" class="mono"'); }).join('') + field('d-role-ADMIN','CAD admin role ID','type="text" inputmode="numeric" class="mono"') + '</div>' +
       '<h2 style="margin-top:6px">Dispatch channel webhook</h2><div class="muted">' + (V.cfg.webhookSet ? 'A webhook is saved. Paste a new one to replace it.' : 'Paste a webhook link from the Discord channel where dispatch should post.') + '</div>' +
       field('d-hook','Webhook link','type="password"') +
-      '<div class="err" role="alert">' + esc(S.err) + '</div><div class="row"><button type="button" class="btn primary" data-act="savediscord">Save Discord settings</button>' + (V.cfg.webhookSet ? '<button type="button" class="btn" data-act="clearhook">Remove webhook</button>' : '') + '</div></section></div>';
+      '<div class="err" role="alert">' + esc(S.err) + '</div><div class="row"><button type="button" class="btn primary" data-act="savediscord">Save Discord settings</button>' + (V.cfg.webhookSet ? '<button type="button" class="btn" data-act="clearhook">Remove webhook</button>' : '') + '</div></section>' +
+      '<section class="panel"><h2>Voice dispatch bot</h2><div class="muted">The voice bot runs on your PC during sessions and sits in a Discord voice channel. It needs a key to reach this CAD. ' + (V.cfg.botKeySet ? 'A key exists. Creating a new one stops the old one working.' : 'No key has been created yet.') + '</div>' +
+      (S.botKey ? '<div class="note" role="status" style="border-color:var(--green);color:var(--text)">Bot key, shown only once. Put it in the bot\'s settings file as CAD_BOT_KEY:<br><b class="mono" style="word-break:break-all">' + esc(S.botKey) + '</b></div>' : '') +
+      '<div class="row"><button type="button" class="btn" data-act="botkey">' + (V.cfg.botKeySet ? 'Create a new bot key' : 'Create bot key') + '</button></div>' +
+      '<div class="dim" style="font-size:13px">The bot only answers while the Discord switch on the Dispatch tab is on. Members must use "Log in with Discord" once so the bot knows which unit is speaking.</div></section></div>';
   }
   var rows = A.accounts.map(function(a){
     return '<tr><td class="mono"><b>' + esc(a.badge) + '</b></td><td>' + esc(a.name) + '</td><td>' + deptTag(a.dept) + '</td><td>' + esc(a.rank) + '</td><td>' + esc(a.role) + '</td>' +
@@ -542,6 +546,7 @@ var A = {
     }
     render();
   },
+  botkey: function(){ act('botkey', {}, {then:function(j){ S.botKey = j.key; }}); },
   'ai-radio': function(){ act('setcfg', {aiRadio:!V.cfg.aiRadio}); },
   'ai-discord': function(){ act('setcfg', {aiDiscord:!V.cfg.aiDiscord}); },
   savediscord: function(){

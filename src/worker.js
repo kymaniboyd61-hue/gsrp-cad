@@ -28,6 +28,10 @@ function cookie(req, name) {
   const m = (req.headers.get("cookie") || "").match(new RegExp("(?:^|;\\s*)" + name + "=([a-f0-9]{16,64})"));
   return m ? m[1] : "";
 }
+async function sha256(text) {
+  const d = await crypto.subtle.digest("SHA-256", new TextEncoder().encode(String(text)));
+  return [...new Uint8Array(d)].map((x) => x.toString(16).padStart(2, "0")).join("");
+}
 async function hashPin(pin, salt) {
   const key = await crypto.subtle.importKey("raw", new TextEncoder().encode(String(pin)), "PBKDF2", false, ["deriveBits"]);
   const bits = await crypto.subtle.deriveBits({ name: "PBKDF2", hash: "SHA-256", salt: new TextEncoder().encode(salt), iterations: 10000 }, key, 256);
@@ -96,7 +100,7 @@ export class Cad extends DurableObject {
     const pub = (x) => ({ badge: x.badge, name: x.name, dept: x.dept, rank: x.rank, unit: (x.units[0] || {}).unit || "" });
     const v = {
       setup: Object.keys(s.accounts).length === 0,
-      cfg: { aiRadio: !!s.cfg.aiRadio, aiDiscord: !!s.cfg.aiDiscord, discordLogin: !!(d.clientId && d.secret && d.guildId), webhookSet: !!s.cfg.webhook },
+      cfg: { aiRadio: !!s.cfg.aiRadio, aiDiscord: !!s.cfg.aiDiscord, discordLogin: !!(d.clientId && d.secret && d.guildId), webhookSet: !!s.cfg.webhook, botKeySet: !!s.cfg.botKeyHash },
       me: null, discord: null, units: [], calls: [], history: [], radio: {},
       roster: Object.values(s.accounts).filter((x) => x.status !== "Disabled").map(pub),
       civs: sid ? s.civs.filter((c) => c.owner === this.ownerKey(sid, ss)).map((c) => ({ id: c.id, name: c.name, dob: c.dob, licence: c.licence, vehicles: c.vehicles })) : [],
@@ -225,6 +229,7 @@ export class Cad extends DurableObject {
       }
       if (url.pathname === "/api/discord/start") return this.discordStart(url);
       if (url.pathname === "/api/discord/callback") return this.discordCallback(url);
+      if (url.pathname === "/api/bot" && req.method === "POST") return this.bot(req);
       if (url.pathname === "/api/rpc" && req.method === "POST") {
         const origin = req.headers.get("origin");
         if (origin && origin !== url.origin) return json({ ok: false, error: "Wrong origin." });
@@ -261,6 +266,36 @@ export class Cad extends DurableObject {
     if (ctx.setSid) headers["set-cookie"] = `sid=${ctx.setSid}; Path=/; HttpOnly; Secure; SameSite=Lax; Max-Age=${SESSION_DAYS * 86400}`;
     if (ctx.clearSid) headers["set-cookie"] = "sid=; Path=/; HttpOnly; Secure; SameSite=Lax; Max-Age=0";
     return json(res, headers);
+  }
+
+  // The Discord voice bot talks to the CAD here. It proves itself with the bot key from Admin.
+  async bot(req) {
+    const key = (req.headers.get("authorization") || "").replace(/^Bearer\s+/i, "");
+    if (!this.s.cfg.botKeyHash || !key || (await sha256(key)) !== this.s.cfg.botKeyHash) return new Response(JSON.stringify({ ok: false, error: "Bad bot key." }), { status: 401, headers: { "content-type": "application/json" } });
+    let body; try { body = await req.json(); } catch (e) { return json({ ok: false, error: "Bad request." }); }
+    const a = body.a || {}, op = String(body.op || "");
+    const acc = a.discordId ? Object.values(this.s.accounts).find((x) => x.discordId === String(a.discordId) && x.status !== "Disabled") : null;
+    const d = acc ? this.s.duty[acc.badge] || null : null;
+    const who = () => (d ? { linked: true, onDuty: true, unit: d.unit, name: d.name, rank: d.rank, department: DEPTS[d.agency].name, status: STATUS[d.si], postal: d.postal || "unknown", activeCall: d.call || null } : { linked: !!acc, onDuty: false, name: acc ? acc.name : "" });
+    const need = () => { if (!d) throw new Err(acc ? "That member is not on duty on the CAD." : "That Discord user has not linked a badge on the CAD."); return d; };
+    let out = {};
+    try {
+      if (op === "state") out = { enabled: !!this.s.cfg.aiDiscord, units: Object.values(this.s.duty).map((u) => ({ unit: u.unit, department: DEPTS[u.agency].name, status: STATUS[u.si], call: u.call })), pendingCalls: this.s.calls.filter((c) => c.status === "Pending").map((c) => ({ number: c.id, title: c.title, postal: c.postal, priority: c.priority })) };
+      else if (op === "who") out = who();
+      else if (op === "plate") out = this.lookupPlate(a.plate);
+      else if (op === "name") out = this.lookupName(a.name);
+      else if (op === "status") { const i = STATUS.indexOf(a.status); if (i === -1) throw new Err("Unknown status."); need().si = i; this.mark("duty"); out = who(); }
+      else if (op === "createcall") { const c = this.newCall(need(), { title: a.title, type: a.type, postal: a.postal, priority: a.priority }); out = { callNumber: c.id, postal: c.postal }; }
+      else if (op === "clear") { const x = need(); if (!x.call) throw new Err("No active call to clear."); this.clearCall(x); out = who(); }
+      else if (op === "getcall") { const x = need(), c = this.s.calls.find((y) => y.status === "Pending"); if (!c) throw new Err("No calls holding."); this.attach(x, c); out = { callNumber: c.id, title: c.title, postal: c.postal }; }
+      else if (op === "log") { const ch = d ? DEPTS[d.agency].ch : 0; if (clamp(a.heard, 300)) this.say(ch, (d ? d.unit : clamp(a.speaker, 30) || "Discord") + " (voice)", a.heard, "u"); if (clamp(a.reply, 300)) this.say(ch, "DISPATCH", a.reply, "d"); this.hooks.length = 0; }
+      else throw new Err("Unknown action.");
+    } catch (e) {
+      if (await this.flush()) this.broadcast();
+      return json({ ok: false, error: e instanceof Err ? e.message : "Server error." });
+    }
+    if (await this.flush()) this.broadcast();
+    return json(Object.assign({ ok: true }, out));
   }
 
   member(ctx) { const a = this.acct(this.sess(ctx.sid)); if (!a || a.status === "Disabled") throw new Err("Please log in again."); return a; }
@@ -520,6 +555,13 @@ const OPS = {
     const acc = this.s.accounts[String(a.badge)];
     if (!acc) throw new Err("No such member.");
     acc.discordId = ""; this.mark("accounts");
+  },
+  async botkey(ctx) {
+    this.admin(ctx);
+    const key = "gsrp_" + rand(24);
+    this.s.cfg.botKeyHash = await sha256(key);
+    this.mark("cfg");
+    ctx.out.key = key;
   },
   async setcfg(ctx, a) {
     this.admin(ctx);

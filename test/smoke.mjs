@@ -82,6 +82,24 @@ r = await rpc("owner", "setdiscord", { clientId: "123456789012345678", secret: "
 assert.ok(!JSON.stringify(r.view).includes("s3cret"), "client secret never leaves the server");
 r = await rpc("owner", "toggleacct", { badge: "301" }); r = await rpc("t", "view"); assert.equal(r.view.me, null, "disabled login is signed out");
 
+// voice bot API
+async function bot(key, op, a){ const res = await cad.fetch(new Request("https://cad.test/api/bot", { method: "POST", headers: { "content-type": "application/json", authorization: "Bearer " + key }, body: JSON.stringify({ op, a }) })); return { status: res.status, body: await res.json() }; }
+r = await bot("nope", "state"); assert.equal(r.status, 401, "bot API needs a key");
+r = await rpc("owner", "botkey"); const botKey = r.key; assert.match(botKey, /^gsrp_/); assert.equal(r.view.cfg.botKeySet, true);
+assert.ok(!JSON.stringify([...store.values()]).includes(botKey), "bot key is stored hashed");
+r = await bot("wrong", "state"); assert.equal(r.status, 401);
+r = await bot(botKey, "state"); assert.equal(r.body.ok, true); assert.equal(r.body.enabled, false);
+cad.s.accounts["206"].discordId = "900000000000000001"; cad.s.accounts["206"].units.push({ unit: "2E-102", agency: "LCSO" });
+r = await bot(botKey, "who", { discordId: "900000000000000001" }); assert.equal(r.body.onDuty, false);
+r = await rpc("owner", "duty", { i: 0 }); assert.equal(r.ok, true);
+r = await bot(botKey, "status", { discordId: "900000000000000001", status: "On scene" }); assert.equal(r.body.status, "On scene");
+r = await bot(botKey, "createcall", { discordId: "900000000000000001", title: "Traffic stop", type: "Traffic stop" }); assert.equal(r.body.ok, true);
+r = await bot(botKey, "plate", { plate: "gsr4821" }); assert.equal(r.body.owner, "Jordan Hale");
+r = await bot(botKey, "log", { discordId: "900000000000000001", heard: "dispatch show me on scene", reply: "2E-102, copy, on scene." }); assert.equal(r.body.ok, true);
+r = await rpc("owner", "view"); assert.match(r.view.radio["0"].at(-1).text, /copy, on scene/); assert.equal(r.view.me.duty.si, 3);
+r = await bot(botKey, "status", { discordId: "111", status: "Busy" }); assert.equal(r.body.ok, false, "unlinked Discord users cannot change the CAD");
+r = await bot(botKey, "clear", { discordId: "900000000000000001" }); assert.equal(r.body.ok, true);
+
 // survives a restart
 cad = new Cad(ctx, {});
 r = await rpc("owner", "view"); assert.equal(r.view.me.badge, "206"); assert.equal(r.view.roster.length, 1);
