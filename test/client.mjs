@@ -51,6 +51,14 @@ click("run"); assert.match(app(), /Search records/); type("runq", "NOPE1"); clic
 click("quick"); type("quickq", "abc123"); click("mkquick"); await wait(50); assert.match(app(), /Traffic stop: ABC123/);
 click("radio"); assert.match(radio(), /HOLD TO TALK/); click("join"); assert.match(radio(), /Leave/);
 type("radiomsg", "Dispatch, show me 10-8"); click("rsend"); await wait(50); assert.match(radio(), /DISPATCH/); assert.match(radio(), /showing you 10-8/);
+// pop-out handheld radio
+const hh = { innerHTML: "" }, pipHandlers = {};
+sandbox.open = () => ({ closed: false, focus(){}, addEventListener(){}, document: { title: "", head: { innerHTML: "" }, body: { innerHTML: "" }, getElementById: (id) => (id === "hh" ? hh : null), addEventListener: (n, f) => { pipHandlers[n] = f; } } });
+click("popout"); await wait(20); assert.match(hh.innerHTML, /HOLD TO TALK/); assert.match(hh.innerHTML, /Global RTO/); assert.match(hh.innerHTML, /2E-102/);
+const pclick = (act, data) => pipHandlers.click({ target: { closest: () => ({ dataset: Object.assign({ act }, data || {}) }) } });
+pclick("ch-next"); assert.match(hh.innerHTML, /State Patrol/); pclick("ch-prev"); assert.match(hh.innerHTML, /Global RTO/);
+pclick("hstat", { si: "3" }); await wait(50); assert.match(hh.innerHTML, /On scene/); assert.match(app(), /On scene/);
+pclick("hpower"); assert.match(hh.innerHTML, /Radio off/); pclick("hpower"); assert.match(hh.innerHTML, /DISPATCH:/);
 click("panic"); await wait(50); assert.match(app(), /PANIC: 2E-102/); click("panic"); await wait(50);
 click("test911"); await wait(50); assert.match(app(), /Test 911/); click("getcall"); await wait(50); assert.match(app(), /Active call #3/);
 click("admin"); assert.match(app(), /Create a login/);

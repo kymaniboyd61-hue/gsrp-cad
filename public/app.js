@@ -390,9 +390,11 @@ function radioHtml(){
     '<div class="log" id="rlog" aria-live="polite">' + log + '</div>' +
     '<div class="foot"><div class="mono muted" id="rhint" style="font-size:11px">' + esc(hint) + '</div>' +
     '<div class="row" style="flex-wrap:nowrap;gap:8px"><input class="inp" id="radiomsg" data-f="radiomsg" aria-label="Radio message" placeholder="Type radio traffic" value="' + esc(fv('radiomsg')) + '" autocomplete="off"><button type="button" class="btn" data-act="rsend">Send</button></div>' +
-    '<button type="button" id="ptt" class="ptt ' + (r.tx ? 'tx' : '') + '" aria-pressed="' + r.tx + '"><span>' + (r.tx ? 'TRANSMITTING' : 'HOLD TO TALK') + '</span><kbd>F</kbd></button></div></section>' + '<span hidden>' + esc(d.unit) + '</span>';
+    '<button type="button" id="ptt" class="ptt ' + (r.tx ? 'tx' : '') + '" aria-pressed="' + r.tx + '"><span>' + (r.tx ? 'TRANSMITTING' : 'HOLD TO TALK') + '</span><kbd>F</kbd></button>' +
+    '<button type="button" class="btn" data-act="popout">Pop out handheld radio</button></div></section>' + '<span hidden>' + esc(d.unit) + '</span>';
 }
 function paintRadio(){
+  paintPip();
   var m = $('#radioMount');
   if (S.screen !== 'cad' || !S.radio.open || !V.me || !V.me.duty){ m.innerHTML = ''; return; }
   m.innerHTML = radioHtml(); S.radio.pop = false;
@@ -407,8 +409,8 @@ function sendRadio(text){
 }
 function txStart(){
   var r = S.radio;
-  if (S.screen !== 'cad' || !r.open) return;
-  if (r.joined === -1){ toast('Join a channel first, then hold F to talk.'); return; }
+  if (S.screen !== 'cad' || !(r.open || pip)) return;
+  if (r.joined === -1){ toast('Join a channel first, then hold F to talk.'); paintPip(); return; }
   if (r.tx) return;
   r.tx = true; beep(1200, 90);
   if (SR){
@@ -432,6 +434,91 @@ function txStop(){
   keepFocus(paintRadio);
 }
 
+
+/* ---------- pop-out handheld radio (stays on top of other windows) ---------- */
+var pip = null;
+var HH_CSS = [
+  '*{box-sizing:border-box}html,body{height:100%}',
+  'body{margin:0;background:#0b0c0d;color:#ecedee;font-family:"IBM Plex Sans",system-ui,sans-serif;display:flex;align-items:center;justify-content:center;overflow:hidden;user-select:none;-webkit-user-select:none}',
+  'button{font-family:inherit;color:inherit;cursor:pointer;border:0}button:focus-visible{outline:2px solid #6fdca8;outline-offset:2px}button:active{transform:translateY(1px)}',
+  '.stage{perspective:900px;padding:8px 14px 10px 22px}',
+  '.rig{position:relative;width:230px;transform:rotateY(-13deg) rotateX(3deg);transform-style:preserve-3d}',
+  '.top{position:relative;height:74px}',
+  '.ant{position:absolute;left:14px;bottom:0;width:26px;height:74px;border-radius:13px 13px 3px 3px;background:linear-gradient(90deg,#0a0a0b,#2b2d30 45%,#111213)}',
+  '.knob{position:absolute;bottom:0;border-radius:6px 6px 2px 2px;background:repeating-linear-gradient(90deg,#17181a 0 3px,#2f3235 3px 5px);box-shadow:inset 0 -6px 8px rgba(0,0,0,.6)}',
+  '.knob.ch{left:98px;width:44px;height:34px}.knob.vol{left:160px;width:52px;height:44px}',
+  '.emer{position:absolute;left:56px;bottom:0;width:30px;height:14px;border-radius:7px 7px 0 0;background:linear-gradient(#ffb066,#e06a14);box-shadow:0 0 0 2px #111}',
+  '.emer.on{background:linear-gradient(#ff8a8a,#b91c1c);animation:hb .8s infinite}',
+  '.body{position:relative;border-radius:16px 16px 22px 22px;padding:14px 14px 16px;background:linear-gradient(100deg,#131415 0%,#2a2c2f 18%,#1b1c1e 60%,#0e0f10 100%);box-shadow:-10px 0 0 -2px #070708,-14px 6px 18px rgba(0,0,0,.7),inset 0 1px 0 rgba(255,255,255,.12),inset 0 -8px 14px rgba(0,0,0,.5)}',
+  '.plate{display:flex;justify-content:space-between;align-items:center;font-size:10px;letter-spacing:.14em;font-weight:700;color:#9aa0a6;margin-bottom:8px}',
+  '.led{width:9px;height:9px;border-radius:50%;background:#3a3d40;box-shadow:inset 0 1px 2px rgba(0,0,0,.6)}.led.rx{background:#6ee7a0;box-shadow:0 0 8px #6ee7a0}.led.tx{background:#ff6b6b;box-shadow:0 0 10px #ff6b6b}',
+  '.lcd{border-radius:6px;padding:8px 9px;min-height:118px;background:linear-gradient(#dfe6dc,#c9d2c6);color:#10140f;font-family:"IBM Plex Mono",ui-monospace,monospace;box-shadow:inset 0 2px 6px rgba(0,0,0,.45),0 0 0 3px #060707;display:flex;flex-direction:column;gap:3px}',
+  '.lcd.off{background:linear-gradient(#5c6359,#4b5248);color:#1c211a}',
+  '.lrow{display:flex;justify-content:space-between;align-items:flex-end;font-size:10px;font-weight:600}',
+  '.bars{display:inline-flex;gap:2px;align-items:flex-end}.bars i{width:3px;background:#10140f}',
+  '.lch{font-size:15px;font-weight:600;line-height:1.15}.lsub{font-size:11px;font-weight:500}.lmsg{font-size:10px;line-height:1.25;min-height:25px;overflow:hidden;display:-webkit-box;-webkit-line-clamp:2;-webkit-box-orient:vertical}',
+  '.soft{display:grid;grid-template-columns:repeat(3,1fr);gap:6px;margin-top:10px}',
+  '.key{min-height:44px;border-radius:8px;font-size:12px;font-weight:700;background:linear-gradient(#34373a,#1d1f21);box-shadow:0 2px 0 #050505,inset 0 1px 0 rgba(255,255,255,.14)}',
+  '.key.on{background:linear-gradient(#2b8f6a,#17604a)}',
+  '.stat{display:grid;grid-template-columns:repeat(2,1fr);gap:6px;margin-top:6px}',
+  '.grille{margin-top:12px;height:34px;border-radius:6px;background:repeating-linear-gradient(0deg,#0a0a0b 0 3px,#232527 3px 6px);box-shadow:inset 0 2px 5px rgba(0,0,0,.7)}',
+  '.ptt{position:absolute;left:-17px;top:118px;width:20px;height:150px;border-radius:8px 0 0 8px;background:linear-gradient(90deg,#0c0c0d,#2c2e31);box-shadow:-2px 2px 6px rgba(0,0,0,.6);writing-mode:vertical-rl;font-size:9px;font-weight:700;letter-spacing:.2em;color:#b4b8bd;touch-action:none}',
+  '.ptt.tx{background:linear-gradient(90deg,#7a1313,#d83a3a);color:#fff}',
+  '.talk{margin-top:8px;width:100%;min-height:50px;border-radius:10px;font-size:13px;font-weight:700;letter-spacing:.06em;background:linear-gradient(#34373a,#1d1f21);box-shadow:0 2px 0 #050505,inset 0 1px 0 rgba(255,255,255,.14);touch-action:none}',
+  '.talk.tx{background:linear-gradient(#d83a3a,#8f1818)}',
+  '@keyframes hb{50%{opacity:.45}}@media (prefers-reduced-motion:reduce){*{animation:none!important}}'
+].join('');
+function handheldHtml(){
+  if (!V.me || !V.me.duty || S.screen !== 'cad') return '<div style="padding:24px;text-align:center;font-size:14px;color:#b4b8bd">Go on duty in the CAD to use the radio.</div>';
+  var r = S.radio, d = V.me.duty, on = r.joined !== -1, ch = CHANNELS[on ? r.joined : r.sel], st = STATUSES[d.si] || STATUSES[0];
+  var list = on ? (V.radio[String(r.joined)] || []) : [], last = list[list.length - 1];
+  var msg = !on ? 'Radio off. Press Power.' : r.tx ? 'Transmitting…' : last ? last.who + ': ' + last.text : 'No traffic.';
+  var keys = [[0,'10-8'],[1,'10-6'],[2,'10-97'],[3,'10-23']].map(function(k){ return '<button type="button" class="key ' + (d.si === k[0] ? 'on' : '') + '" aria-pressed="' + (d.si === k[0]) + '" data-act="hstat" data-si="' + k[0] + '">' + k[1] + '</button>'; }).join('');
+  return '<div class="stage"><div class="rig">' +
+    '<div class="top"><div class="ant" aria-hidden="true"></div><button type="button" class="emer ' + (d.panic ? 'on' : '') + '" aria-label="Emergency button' + (d.panic ? ', active' : '') + '" aria-pressed="' + !!d.panic + '" data-act="panic"></button><div class="knob ch" aria-hidden="true"></div><div class="knob vol" aria-hidden="true"></div></div>' +
+    '<div class="body"><button type="button" id="hptt" class="ptt ' + (r.tx ? 'tx' : '') + '" aria-label="Push to talk" aria-pressed="' + r.tx + '">PTT</button>' +
+    '<div class="plate"><span>GSRP · P25</span><span class="led ' + (r.tx ? 'tx' : on ? 'rx' : '') + '" role="img" aria-label="' + (r.tx ? 'Transmitting' : on ? 'Receiving' : 'Off') + '"></span></div>' +
+    '<div class="lcd ' + (on ? '' : 'off') + '" aria-live="polite"><div class="lrow"><span class="bars" aria-hidden="true"><i style="height:4px"></i><i style="height:6px"></i><i style="height:8px"></i><i style="height:10px"></i></span><span>' + (r.tx ? 'TX' : on ? 'RX' : 'OFF') + '</span><span id="hclock"></span></div>' +
+    '<div class="lch">' + esc(ch.name) + '</div><div class="lsub">' + esc(d.unit) + ' · ' + esc(st.label) + (d.call ? ' · Call ' + d.call : '') + '</div><div class="lmsg">' + esc(msg) + '</div></div>' +
+    '<div class="soft"><button type="button" class="key" data-act="ch-prev" aria-label="Previous channel">Ch −</button><button type="button" class="key ' + (on ? 'on' : '') + '" aria-pressed="' + on + '" data-act="hpower">Power</button><button type="button" class="key" data-act="ch-next" aria-label="Next channel">Ch +</button></div>' +
+    '<div class="stat">' + keys + '</div>' +
+    '<button type="button" id="htalk" class="talk ' + (r.tx ? 'tx' : '') + '" aria-pressed="' + r.tx + '">' + (r.tx ? 'TRANSMITTING' : 'HOLD TO TALK') + '</button>' +
+    '<div class="grille" aria-hidden="true"></div></div></div></div>';
+}
+function paintPip(){
+  if (!pip) return;
+  if (pip.closed){ pip = null; return; }
+  var box = pip.document.getElementById('hh'); if (!box) return;
+  box.innerHTML = handheldHtml();
+  var c = pip.document.getElementById('hclock'); if (c) c.textContent = new Date().toLocaleTimeString([], {hour:'2-digit', minute:'2-digit'});
+}
+function openPip(){
+  if (pip && !pip.closed){ try{ pip.focus(); }catch(e){} return; }
+  var dp = window.documentPictureInPicture, job;
+  if (dp && dp.requestWindow) job = dp.requestWindow({width:300, height:660});
+  else { var w0 = window.open ? window.open('', 'gsrp-radio', 'width=300,height=660') : null; job = Promise.resolve(w0); }
+  Promise.resolve(job).then(function(w){
+    if (!w){ toast('The radio window was blocked. Allow pop-ups for this site and try again.'); return; }
+    pip = w; var d = w.document;
+    d.title = 'GSRP Radio';
+    d.head.innerHTML = '<meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1"><title>GSRP Radio</title><link href="https://fonts.googleapis.com/css2?family=IBM+Plex+Mono:wght@500;600&family=IBM+Plex+Sans:wght@500;700&display=swap" rel="stylesheet"><style>' + HH_CSS + '</style>';
+    d.body.innerHTML = '<div id="hh"></div>';
+    d.addEventListener('click', function(e){ var el = e.target.closest && e.target.closest('[data-act]'); if (el && A[el.dataset.act]) A[el.dataset.act](el); });
+    d.addEventListener('pointerdown', function(e){ if (e.target.closest && e.target.closest('#hptt,#htalk')){ e.preventDefault(); txStart(); } });
+    d.addEventListener('pointerup', txStop); d.addEventListener('pointercancel', txStop);
+    d.addEventListener('keydown', function(e){ if ((e.key === 'f' || e.key === 'F') && !e.repeat){ e.preventDefault(); txStart(); } });
+    d.addEventListener('keyup', function(e){ if (e.key === 'f' || e.key === 'F') txStop(); });
+    w.addEventListener('pagehide', function(){ pip = null; });
+    if (!dp) toast('Use Chrome or Edge to keep the radio on top of your game.');
+    paintPip();
+  }).catch(function(){ toast('Could not open the radio window.'); });
+}
+function joinChannel(i){
+  var r = S.radio; r.tx = false; r.joined = i; r.seen = 0;
+  if (i !== -1){ r.sel = i; var l = V.radio[String(i)] || []; r.seen = l.length ? l[l.length - 1].id : 1; }
+  beep(i === -1 ? 500 : 1000, 80);
+}
+
 /* ---------- drawing ---------- */
 function keepFocus(fn){
   var ae = document.activeElement, id = ae && ae.id, a, b;
@@ -451,6 +538,7 @@ function tick(){
   var d = new Date(), c = $('#clock'), dt = $('#date');
   if (c) c.textContent = S.screen === 'cad' ? d.toLocaleTimeString('en-US', {hour12:false}) : d.toLocaleTimeString('en-US', {hour:'numeric', minute:'2-digit', second:'2-digit'});
   if (dt) dt.textContent = d.toLocaleDateString('en-US');
+  if (pip && !pip.closed){ var hc = pip.document.getElementById('hclock'); if (hc) hc.textContent = d.toLocaleTimeString([], {hour:'2-digit', minute:'2-digit'}); }
 }
 setInterval(tick, 1000);
 var enterTimer;
@@ -533,11 +621,12 @@ var A = {
   panic: function(){ act('panic'); },
   radio: function(){ S.radio.open = !S.radio.open; S.radio.tx = false; S.radio.pop = S.radio.open; render(); },
   voice: function(){ S.voice = !S.voice; try{ localStorage.setItem('gsrp-voice', S.voice ? '1' : '0'); }catch(e){} if (S.voice) speak('Radio voice on.'); keepFocus(paintRadio); },
-  join: function(){
-    var r = S.radio; r.tx = false; r.joined = r.joined === r.sel ? -1 : r.sel; r.seen = 0; beep(r.joined === -1 ? 500 : 1000, 80);
-    if (r.joined !== -1){ var l = V.radio[String(r.joined)] || []; r.seen = l.length ? l[l.length - 1].id : 1; }
-    keepFocus(paintRadio);
-  },
+  join: function(){ var r = S.radio; joinChannel(r.joined === r.sel ? -1 : r.sel); keepFocus(paintRadio); },
+  popout: function(){ openPip(); },
+  hpower: function(){ var r = S.radio; joinChannel(r.joined === -1 ? r.sel : -1); keepFocus(paintRadio); },
+  'ch-prev': function(){ var r = S.radio, n = CHANNELS.length, i = ((r.joined !== -1 ? r.joined : r.sel) + n - 1) % n; if (r.joined !== -1) joinChannel(i); else { r.sel = i; beep(900, 40); } keepFocus(paintRadio); },
+  'ch-next': function(){ var r = S.radio, n = CHANNELS.length, i = ((r.joined !== -1 ? r.joined : r.sel) + 1) % n; if (r.joined !== -1) joinChannel(i); else { r.sel = i; beep(900, 40); } keepFocus(paintRadio); },
+  hstat: function(el){ act('status', {si:+el.dataset.si}); },
   rsend: function(){ var t = fv('radiomsg'); if (!t.trim()) return; S.f.radiomsg = ''; var i = $('#radiomsg'); if (i) i.value = ''; sendRadio(t); },
   admin: function(){ S.adminNote = ''; go('admin'); },
   backcad: function(){ go(V.me && V.me.duty ? 'cad' : 'units'); },
@@ -611,7 +700,7 @@ document.addEventListener('keydown', function(e){
     if (e.target.id === 'radiomsg') { A.rsend(); return; }
   }
   if ((e.key === 'f' || e.key === 'F') && !typing(e) && !e.repeat && !e.ctrlKey && !e.metaKey && !e.altKey){
-    if (S.screen === 'cad' && S.radio.open){ e.preventDefault(); txStart(); }
+    if (S.screen === 'cad' && (S.radio.open || pip)){ e.preventDefault(); txStart(); }
   }
 });
 document.addEventListener('keyup', function(e){ if (e.key === 'f' || e.key === 'F') txStop(); });
