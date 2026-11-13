@@ -325,7 +325,10 @@ function viewAdmin(){
     field('a-badge','Badge number (what they sign in with)','type="text" inputmode="numeric"') + field('a-name','Name shown on the roster') + field('a-unit','Unit number / callsign') +
     select('a-dept','Department', deptOpts) + select('a-rank','Rank', dept(dk).ranks) + select('a-role','CAD role',['Officer','Dispatcher','Supervisor','Admin']) +
     '<div class="dim" style="font-size:13px">A temporary PIN is made for you and shown once. The member picks their own PIN at first sign in and joins the roster right away.</div>' +
-    '<div class="err" role="alert">' + esc(S.err) + '</div><button type="button" class="btn primary" data-act="mkacct">Create login</button></section>' +
+    '<div class="err" role="alert">' + (S.errAt === 'acct' ? esc(S.err) : '') + '</div><button type="button" class="btn primary" data-act="mkacct">Create login</button></section>' +
+    '<section class="panel" style="flex:1 1 300px"><h2>Link Discord for voice dispatch</h2><div class="muted" style="font-size:13px">The voice bot needs to know which Discord account belongs to which badge. In Discord, right-click the member\'s name and choose Copy User ID (Developer Mode must be on).</div>' +
+    field('l-badge','Badge number','type="text" inputmode="numeric"') + field('l-id','Discord user ID','type="text" inputmode="numeric" class="mono"') +
+    '<div class="err" role="alert">' + (S.errAt === 'linkd' ? esc(S.err) : '') + '</div><button type="button" class="btn primary" data-act="linkdiscord">Link Discord account</button></section>' +
     '<section class="panel" style="flex:999 1 520px"><div class="row between"><h2>All logins</h2><span class="dim">' + A.accounts.length + ' members</span></div>' +
     '<div class="tablewrap"><table style="min-width:1120px"><thead><tr><th>Badge</th><th>Name</th><th>Dept</th><th>Rank</th><th>CAD role</th><th>Departments' + (V.cfg.discordLogin ? ' (synced from Discord at login)' : '') + '</th><th>Discord</th><th>Login</th><th>Actions</th></tr></thead><tbody>' + rows + '</tbody></table></div></section></div></div>';
 }
@@ -564,6 +567,7 @@ var A = {
   resetpin: function(el){ act('resetpin', {badge:el.dataset.b}, {then:function(j){ S.adminNote = 'PIN reset for badge <b class="mono">' + esc(j.badge) + '</b>. New temporary PIN: <b class="mono">' + esc(j.pin) + '</b>. It is shown only once.'; }}); },
   toggleacct: function(el){ act('toggleacct', {badge:el.dataset.b}); },
   trole: function(el){ act('trole', {badge:el.dataset.b, k:el.dataset.k}); },
+  linkdiscord: function(){ act('linkdiscord', {badge:fv('l-badge'), discordId:fv('l-id').trim()}, {errAt:'linkd', then:function(j){ S.f['l-badge'] = ''; S.f['l-id'] = ''; toast('Linked ' + j.name + ' for voice dispatch.'); }}); },
   unlink: function(el){ act('unlink', {badge:el.dataset.b}); },
   mkciv: function(){ act('mkciv', {name:fv('v-name'), dob:fv('v-dob')}, {errAt:'civ', then:function(j){ S.f['v-name'] = ''; S.f['v-dob'] = ''; S.f['v-owner'] = String(j.id); toast('Character registered with a valid licence.'); }}); },
   mkveh: function(){ act('mkveh', {id:+(fv('v-owner') || (V.civs[0] || {}).id || 0), plate:fv('v-plate'), model:fv('v-model'), color:fv('v-color')}, {errAt:'veh', then:function(){ S.f['v-plate'] = ''; S.f['v-model'] = ''; S.f['v-color'] = ''; toast('Vehicle registered.'); }}); }

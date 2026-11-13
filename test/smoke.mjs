@@ -89,7 +89,9 @@ r = await rpc("owner", "botkey"); const botKey = r.key; assert.match(botKey, /^g
 assert.ok(!JSON.stringify([...store.values()]).includes(botKey), "bot key is stored hashed");
 r = await bot("wrong", "state"); assert.equal(r.status, 401);
 r = await bot(botKey, "state"); assert.equal(r.body.ok, true); assert.equal(r.body.enabled, false);
-cad.s.accounts["206"].discordId = "900000000000000001"; cad.s.accounts["206"].units.push({ unit: "2E-102", agency: "LCSO" });
+r = await rpc("owner", "linkdiscord", { badge: "206", discordId: "12" }); assert.equal(r.ok, false);
+r = await rpc("owner", "linkdiscord", { badge: "206", discordId: "900000000000000001" }); assert.equal(r.ok, true);
+cad.s.accounts["206"].units.push({ unit: "2E-102", agency: "LCSO" });
 r = await bot(botKey, "who", { discordId: "900000000000000001" }); assert.equal(r.body.onDuty, false);
 r = await rpc("owner", "duty", { i: 0 }); assert.equal(r.ok, true);
 r = await bot(botKey, "status", { discordId: "900000000000000001", status: "On scene" }); assert.equal(r.body.status, "On scene");

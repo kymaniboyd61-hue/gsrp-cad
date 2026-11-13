@@ -550,6 +550,16 @@ const OPS = {
     if (d && !acc.roles.includes(d.agency)) { if (d.call) this.clearCall(d); delete this.s.duty[acc.badge]; this.mark("duty"); }
     this.mark("accounts");
   },
+  // Admin links a member's Discord account by ID, so the voice bot knows which unit is speaking.
+  async linkdiscord(ctx, a) {
+    this.admin(ctx);
+    const acc = this.s.accounts[String(a.badge || "").trim()], id = clamp(a.discordId, 24);
+    if (!acc) throw new Err("No member has that badge number.");
+    if (!/^\d{15,22}$/.test(id)) throw new Err("A Discord user ID is a long number, 15 to 22 digits.");
+    Object.values(this.s.accounts).forEach((x) => { if (x.discordId === id) x.discordId = ""; });
+    acc.discordId = id; this.mark("accounts");
+    ctx.out.name = acc.name;
+  },
   async unlink(ctx, a) {
     this.admin(ctx);
     const acc = this.s.accounts[String(a.badge)];
